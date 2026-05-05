@@ -32,6 +32,18 @@ def redis_map(port, *args)
   Hash[*lines]
 end
 
+def redis_version(port)
+  line = redis_cli(port, "INFO", "server").find { |item| item.start_with?("redis_version:") }
+  raise "redis_version missing" if line.nil?
+
+  line.split(":", 2).last.split(".").map(&:to_i)
+end
+
+def redis_version_at_least?(port, major, minor)
+  current_major, current_minor = redis_version(port)
+  current_major > major || (current_major == major && current_minor >= minor)
+end
+
 def read_pubsub_line(io)
   Timeout.timeout(5) do
     line = io.gets
@@ -137,8 +149,10 @@ begin
   raise "INFO missing length" unless missing_info["length"] == "0"
   raise "INFO missing memory_usage" unless missing_info["memory_usage"] == "0"
   raise "COMMAND DOCS" unless redis_cli(port, "COMMAND", "DOCS", "RTREE.INFO").include?("Return metadata about an rtree key.")
-  raise "ACL read category" unless redis_cli(port, "ACL", "CAT", "read").include?("rtree.info")
-  raise "ACL write category" unless redis_cli(port, "ACL", "CAT", "write").include?("rtree.set")
+  if redis_version_at_least?(port, 7, 2)
+    raise "ACL read category" unless redis_cli(port, "ACL", "CAT", "read").include?("rtree.info")
+    raise "ACL write category" unless redis_cli(port, "ACL", "CAT", "write").include?("rtree.set")
+  end
   raise "KEYS" unless redis_cli(port, "RTREE.KEYS", "h") == %w[a b]
   raise "GETALL" unless redis_cli(port, "RTREE.GETALL", "h") == %w[a 1 b 22]
 

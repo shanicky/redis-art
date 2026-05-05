@@ -69,10 +69,15 @@ static int register_command(RedisModuleCtx *ctx,
     info.arity = arity;
     info.key_specs = key_specs;
 
-    if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR) {
+    if (RedisModule_SetCommandInfo != NULL &&
+        RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    return RedisModule_SetCommandACLCategories(command, acl_categories);
+    if (RedisModule_SetCommandACLCategories != NULL &&
+        RedisModule_SetCommandACLCategories(command, acl_categories) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
