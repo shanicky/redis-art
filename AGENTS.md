@@ -5,8 +5,8 @@ Keep assistant-specific files short and point them back here when possible.
 
 ## Project Overview
 
-`rtree` is a Redis module written in C99. It implements an ordered hash data
-type backed by an adaptive radix tree (ART). Fields are ordered by raw bytewise
+`rtree` is a Redis module written in C99. It implements an ordered field-value
+map backed by an adaptive radix tree (ART). Fields are ordered by raw bytewise
 lexicographic order.
 
 Core files:

@@ -1,9 +1,9 @@
-# Redis Ordered Hash Module
+# RTREE Redis Module
 
-`rtree` is a Redis module that adds an ordered hash data type. It stores
-field-value pairs in an adaptive radix tree (ART), so fields are kept in
-bytewise lexicographic order and can be read through ordered iteration,
-inclusive ranges, prefix queries, and cursor-based scans.
+`rtree` is a Redis module that adds an ordered field-value map backed by an
+adaptive radix tree (ART). Fields are kept in bytewise lexicographic order and
+can be read through ordered iteration, inclusive ranges, prefix queries, and
+cursor-based scans.
 
 The module registers itself as `rtree` and creates a native Redis data type
 named `rtree-art`.
