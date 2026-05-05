@@ -5,8 +5,8 @@ guidance.
 
 Repository summary:
 
-- `rtree` is a C99 Redis module implementing an ordered hash over an adaptive
-  radix tree.
+- `rtree` is a C99 Redis module implementing an ordered field-value map over an
+  adaptive radix tree.
 - `README.md` is the public command reference.
 - `src/rtree.c` contains command handlers and option parsing.
 - `src/art.c` contains the ordered tree implementation.
