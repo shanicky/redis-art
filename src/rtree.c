@@ -110,6 +110,51 @@ size_t RTreeMemUsage(const void *value) {
     return sizeof(*hash) + (size_t)art_memory_usage(hash->index, string_value_mem_usage);
 }
 
+size_t RTreeFreeEffort(RedisModuleString *key, const void *value) {
+    const RTree *hash = value;
+
+    REDISMODULE_NOT_USED(key);
+
+    if (hash == NULL) {
+        return 0;
+    }
+    return 1 + (size_t)art_free_effort(hash->index);
+}
+
+void RTreeUnlink(RedisModuleString *key, const void *value) {
+    REDISMODULE_NOT_USED(key);
+    REDISMODULE_NOT_USED(value);
+}
+
+static void *rtree_defrag_alloc(void *ctx, void *ptr) {
+    return RedisModule_DefragAlloc(ctx, ptr);
+}
+
+static void *rtree_defrag_value(void *ctx, void *value) {
+    return RedisModule_DefragRedisModuleString(ctx, value);
+}
+
+int RTreeDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) {
+    RTree *hash;
+    void *moved;
+
+    REDISMODULE_NOT_USED(key);
+
+    if (value == NULL || *value == NULL) {
+        return 0;
+    }
+
+    hash = *value;
+    moved = RedisModule_DefragAlloc(ctx, hash);
+    if (moved != NULL) {
+        hash = moved;
+        *value = hash;
+    }
+
+    hash->index = art_defrag(hash->index, rtree_defrag_alloc, rtree_defrag_value, ctx);
+    return 0;
+}
+
 uint64_t RTreeLen(const RTree *hash) {
     return hash == NULL ? 0 : art_size(hash->index);
 }
@@ -371,6 +416,10 @@ static void close_key_if_open(RedisModuleKey *key) {
     }
 }
 
+static void notify_rtree_event(RedisModuleCtx *ctx, const char *event, RedisModuleString *keyname) {
+    (void)RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_MODULE, event, keyname);
+}
+
 int RTreeSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleKey *key = NULL;
     RTree *hash = NULL;
@@ -408,6 +457,7 @@ int RTreeSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_FreeString(ctx, old_value);
     }
     RedisModule_ReplicateVerbatim(ctx);
+    notify_rtree_event(ctx, "rtree.set", argv[1]);
     close_key_if_open(key);
     RedisModule_ReplyWithLongLong(ctx, rc > 0 ? 1 : 0);
     return REDISMODULE_OK;
@@ -474,10 +524,16 @@ int RTreeDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     if (deleted > 0) {
-        if (RTreeLen(hash) == 0) {
+        int emptied = RTreeLen(hash) == 0;
+
+        if (emptied) {
             RedisModule_DeleteKey(key);
         }
         RedisModule_ReplicateVerbatim(ctx);
+        notify_rtree_event(ctx, "rtree.del", argv[1]);
+        if (emptied) {
+            notify_rtree_event(ctx, "rtree.empty", argv[1]);
+        }
     }
     close_key_if_open(key);
     RedisModule_ReplyWithLongLong(ctx, deleted);
@@ -523,6 +579,35 @@ int RTreeLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     len = RTreeLen(hash);
     close_key_if_open(key);
     RedisModule_ReplyWithLongLong(ctx, (long long)len);
+    return REDISMODULE_OK;
+}
+
+int RTreeInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModuleKey *key = NULL;
+    RTree *hash = NULL;
+    uint64_t len;
+    size_t memory_usage;
+
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+    if (open_rtree_key(ctx, argv[1], REDISMODULE_READ, 0, &key, &hash) != REDISMODULE_OK) {
+        return REDISMODULE_OK;
+    }
+
+    len = RTreeLen(hash);
+    memory_usage = hash == NULL ? 0 : RTreeMemUsage(hash);
+    close_key_if_open(key);
+
+    RedisModule_ReplyWithMap(ctx, 4);
+    RedisModule_ReplyWithCString(ctx, "type");
+    RedisModule_ReplyWithCString(ctx, "rtree-art");
+    RedisModule_ReplyWithCString(ctx, "encoding");
+    RedisModule_ReplyWithCString(ctx, "art");
+    RedisModule_ReplyWithCString(ctx, "length");
+    RedisModule_ReplyWithLongLong(ctx, (long long)len);
+    RedisModule_ReplyWithCString(ctx, "memory_usage");
+    RedisModule_ReplyWithLongLong(ctx, (long long)memory_usage);
     return REDISMODULE_OK;
 }
 

@@ -18,6 +18,8 @@ typedef void *(*ArtReallocFn)(void *ptr, size_t size);
 typedef void (*ArtFreeFn)(void *ptr);
 typedef void (*ArtValueFreeFn)(void *value);
 typedef uint64_t (*ArtValueMemUsageFn)(void *value);
+typedef void *(*ArtDefragAllocFn)(void *ctx, void *ptr);
+typedef void *(*ArtValueDefragFn)(void *ctx, void *value);
 typedef int (*ArtIterFn)(const unsigned char *key, size_t key_len, void *value, void *ctx);
 
 void art_set_allocator(ArtAllocFn alloc_fn,
@@ -30,6 +32,11 @@ void art_destroy(ArtTree *tree);
 
 uint64_t art_size(const ArtTree *tree);
 uint64_t art_memory_usage(const ArtTree *tree, ArtValueMemUsageFn value_mem_usage);
+uint64_t art_free_effort(const ArtTree *tree);
+ArtTree *art_defrag(ArtTree *tree,
+                    ArtDefragAllocFn defrag_alloc,
+                    ArtValueDefragFn defrag_value,
+                    void *ctx);
 
 int art_insert(ArtTree *tree,
                const unsigned char *key,
