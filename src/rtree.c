@@ -127,10 +127,16 @@ void RTreeUnlink(RedisModuleString *key, const void *value) {
 }
 
 static void *rtree_defrag_alloc(void *ctx, void *ptr) {
+    if (RedisModule_DefragAlloc == NULL) {
+        return NULL;
+    }
     return RedisModule_DefragAlloc(ctx, ptr);
 }
 
 static void *rtree_defrag_value(void *ctx, void *value) {
+    if (RedisModule_DefragRedisModuleString == NULL) {
+        return NULL;
+    }
     return RedisModule_DefragRedisModuleString(ctx, value);
 }
 
@@ -145,7 +151,7 @@ int RTreeDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value)
     }
 
     hash = *value;
-    moved = RedisModule_DefragAlloc(ctx, hash);
+    moved = rtree_defrag_alloc(ctx, hash);
     if (moved != NULL) {
         hash = moved;
         *value = hash;
