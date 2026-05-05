@@ -1,0 +1,4 @@
+*.o
+*.so
+tests/test_art
+.DS_Store
