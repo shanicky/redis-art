@@ -1,6 +1,6 @@
-# Redis Ordered Hash Module
+# RTREE — Redis Ordered Hash Module
 
-`rtree` is a Redis Module that adds an ordered hash data type. Fields are stored in bytewise lexicographic order and can be read back with ordered iteration, inclusive ranges, prefix queries, and an incremental scan command.
+`rtree` is a Redis Module that provides an ordered hash data type backed by an Adaptive Radix Tree (ART). Fields are stored in lexicographic order and support ordered iteration, inclusive range queries, prefix matching, and incremental scan.
 
 ## Build
 
@@ -8,7 +8,7 @@
 make
 ```
 
-The build vendors `deps/redismodule.h`, so no Redis source checkout is required.
+No Redis source checkout required — `deps/redismodule.h` is vendored.
 
 ## Load
 
@@ -18,18 +18,37 @@ redis-server --loadmodule ./rtree.so
 
 ## Commands
 
-- `RTREE.SET key field value`: set one field, returning `1` for a new field and `0` for an update.
-- `RTREE.GET key field`: return the field value, or null.
-- `RTREE.DEL key field [field ...]`: delete fields and return the number removed.
-- `RTREE.EXISTS key field`: return `1` if the field exists.
-- `RTREE.LEN key`: return the field count.
-- `RTREE.GETALL key`: return ordered `field value` pairs.
-- `RTREE.KEYS key`: return ordered fields.
-- `RTREE.VALS key`: return values ordered by field.
-- `RTREE.RANGE key start end [LIMIT n]`: return ordered pairs whose field is in the inclusive `[start, end]` interval.
-- `RTREE.REVRANGE key start end [LIMIT n]`: return the same interval in reverse order.
-- `RTREE.GETPREFIX key prefix [LIMIT n]`: return ordered pairs whose field starts with `prefix`.
-- `RTREE.SCAN key cursor [MATCH pattern] [COUNT n]`: incrementally scan ordered pairs.
+### CRUD
+
+| Command | Description |
+|---------|-------------|
+| `RTREE.SET key field value` | Set a field. Returns `1` for new, `0` for updated. |
+| `RTREE.GET key field` | Get a field's value, or null. |
+| `RTREE.DEL key field [field ...]` | Delete one or more fields, returns count removed. |
+| `RTREE.EXISTS key field` | Returns `1` if the field exists. |
+| `RTREE.LEN key` | Returns the number of fields. |
+
+### Traversal
+
+| Command | Description |
+|---------|-------------|
+| `RTREE.GETALL key` | All field-value pairs in field order. |
+| `RTREE.KEYS key` | All fields in order. |
+| `RTREE.VALS key` | All values ordered by field. |
+
+### Range & Prefix
+
+| Command | Description |
+|---------|-------------|
+| `RTREE.RANGE key start end [LIMIT n]` | Ordered pairs in inclusive `[start, end]` range. |
+| `RTREE.REVRANGE key start end [LIMIT n]` | Same range in reverse order. |
+| `RTREE.GETPREFIX key prefix [LIMIT n]` | Ordered pairs whose field starts with `prefix`. |
+
+### Scan
+
+| Command | Description |
+|---------|-------------|
+| `RTREE.SCAN key cursor [MATCH pattern] [COUNT n]` | Incremental scan with cursor and optional glob pattern. |
 
 ## Examples
 
@@ -37,22 +56,54 @@ redis-server --loadmodule ./rtree.so
 RTREE.SET users user:001 alice
 RTREE.SET users user:010 bob
 RTREE.SET users account:001 carol
+
 RTREE.GETPREFIX users user:
+# → user:001 alice user:010 bob
+
 RTREE.RANGE users user:000 user:999
+# → user:001 alice user:010 bob
 ```
+
+## Architecture
+
+```
+src/
+├── module.c       — Redis module entry point, type & command registration
+├── art.c          — Adaptive Radix Tree core implementation
+├── art.h          — ART public API
+├── rtree.c        — RTREE data type and command implementations
+├── rtree.h        — RTREE public API
+├── rdb.c          — RDB save/load and AOF rewrite
+└── rdb.h          — RDB public API
+```
+
+### Adaptive Radix Tree
+
+ART compresses paths into nodes and adaptively selects node types (4, 16, 48, 256 children) based on density:
+
+- **O(k)** lookup, insert, delete where k is the key length in bytes
+- Byte-level lexicographic ordering — fields are naturally sorted
+- Non-recursive stack-based traversal — safe for arbitrary key lengths
+- Range queries and prefix matching with subtree pruning (skips branches that cannot match)
+- Automatic node grow (4→16→48→256) and shrink (256→48→16→4) as density changes
+
+### Memory Management
+
+- **Slab pool allocator**: each tree maintains 4 pools (one per node type). Nodes are allocated from 64 KB slabs with an intrusive free-list for reuse. Deleting a key releases all slabs at once — O(1) teardown.
+- **Prefix inlining**: compressed path prefixes ≤ 8 bytes are stored directly in the node structure, eliminating separate heap allocations for the common case.
+- Memory usage is tracked through `RTREE.MEMORY key` (via `MEMORY USAGE` support).
+
+### Persistence
+
+The module registers a native Redis data type (`rtree-art`). RDB dumps store ordered field-value pairs and reconstructs the tree on load. AOF rewrite emits `RTREE.SET` commands.
 
 ## Tests
 
 ```sh
-make test
+make test          # ART unit tests (standalone, no Redis needed)
+make test-module   # Integration tests (requires redis-server & redis-cli)
 ```
 
-`make test` runs the standalone ART unit test. If `redis-server` and `redis-cli` are installed, run the module integration test with:
+## License
 
-```sh
-make test-module
-```
-
-## Persistence
-
-The module registers a Redis native data type named `rtree-art`. RDB persistence stores ordered field-value pairs and rebuilds the index on load. AOF rewrite emits `RTREE.SET` commands.
+BSD 3-Clause
