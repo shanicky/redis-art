@@ -1792,6 +1792,94 @@ static uint64_t node_memory_usage(ArtNode *node, ArtValueMemUsageFn value_mem_us
     return total;
 }
 
+static uint64_t node_free_effort(const ArtNode *node) {
+    uint64_t total;
+    int i;
+
+    if (node == NULL) {
+        return 0;
+    }
+
+    total = 1;
+    if (node->has_value) {
+        total++;
+    }
+
+    switch (node->type) {
+        case ART_NODE4:
+            for (i = 0; i < node->count; i++) {
+                total += node_free_effort(node4_data_const(node)->children[i]);
+            }
+            break;
+        case ART_NODE16:
+            for (i = 0; i < node->count; i++) {
+                total += node_free_effort(node16_data_const(node)->children[i]);
+            }
+            break;
+        case ART_NODE48:
+            for (i = 0; i < 48; i++) {
+                total += node_free_effort(node48_data_const(node)->children[i]);
+            }
+            break;
+        case ART_NODE256:
+            for (i = 0; i < 256; i++) {
+                total += node_free_effort(node256_data_const(node)->children[i]);
+            }
+            break;
+    }
+
+    return total;
+}
+
+static void node_defrag(ArtNode *node,
+                        ArtDefragAllocFn defrag_alloc,
+                        ArtValueDefragFn defrag_value,
+                        void *ctx) {
+    void *moved;
+    int i;
+
+    if (node == NULL) {
+        return;
+    }
+
+    if (node_prefix_is_heap(node) && defrag_alloc != NULL) {
+        moved = defrag_alloc(ctx, node->prefix.heap);
+        if (moved != NULL) {
+            node->prefix.heap = moved;
+        }
+    }
+
+    if (node->has_value && defrag_value != NULL) {
+        moved = defrag_value(ctx, node->value);
+        if (moved != NULL) {
+            node->value = moved;
+        }
+    }
+
+    switch (node->type) {
+        case ART_NODE4:
+            for (i = 0; i < node->count; i++) {
+                node_defrag(node4_data(node)->children[i], defrag_alloc, defrag_value, ctx);
+            }
+            break;
+        case ART_NODE16:
+            for (i = 0; i < node->count; i++) {
+                node_defrag(node16_data(node)->children[i], defrag_alloc, defrag_value, ctx);
+            }
+            break;
+        case ART_NODE48:
+            for (i = 0; i < 48; i++) {
+                node_defrag(node48_data(node)->children[i], defrag_alloc, defrag_value, ctx);
+            }
+            break;
+        case ART_NODE256:
+            for (i = 0; i < 256; i++) {
+                node_defrag(node256_data(node)->children[i], defrag_alloc, defrag_value, ctx);
+            }
+            break;
+    }
+}
+
 uint64_t art_memory_usage(const ArtTree *tree, ArtValueMemUsageFn value_mem_usage) {
     uint64_t total;
     int i;
@@ -1805,4 +1893,32 @@ uint64_t art_memory_usage(const ArtTree *tree, ArtValueMemUsageFn value_mem_usag
         total += art_pool_memory_usage(&tree->pools[i]);
     }
     return total;
+}
+
+uint64_t art_free_effort(const ArtTree *tree) {
+    if (tree == NULL) {
+        return 0;
+    }
+    return 1 + node_free_effort(tree->root);
+}
+
+ArtTree *art_defrag(ArtTree *tree,
+                    ArtDefragAllocFn defrag_alloc,
+                    ArtValueDefragFn defrag_value,
+                    void *ctx) {
+    void *moved;
+
+    if (tree == NULL) {
+        return NULL;
+    }
+
+    if (defrag_alloc != NULL) {
+        moved = defrag_alloc(ctx, tree);
+        if (moved != NULL) {
+            tree = moved;
+        }
+    }
+
+    node_defrag(tree->root, defrag_alloc, defrag_value, ctx);
+    return tree;
 }

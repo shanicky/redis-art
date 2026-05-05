@@ -69,6 +69,11 @@ Range bounds are inclusive.
   - Returns the number of fields stored at `key`.
   - Returns `0` for a missing key.
 
+- `RTREE.INFO key`
+  - Returns a RESP3 map with metadata for the rtree key.
+  - Map fields are `type`, `encoding`, `length`, and `memory_usage`.
+  - Missing keys return `length` and `memory_usage` as `0`.
+
 - `RTREE.GETALL key`
   - Returns ordered `field value` pairs.
 
@@ -111,10 +116,27 @@ RTREE.SET users account:001 carol
 
 RTREE.GET users user:001
 RTREE.KEYS users
+RTREE.INFO users
 RTREE.GETPREFIX users user:
 RTREE.RANGE users user:000 user:999
 RTREE.REVRANGE users account:000 user:999 LIMIT 2
 RTREE.SCAN users 0 MATCH user:* COUNT 10
+```
+
+## Keyspace Notifications
+
+Write commands emit module keyspace events when Redis keyspace notifications are
+enabled with the `d` class:
+
+- `rtree.set` after `RTREE.SET` changes a field.
+- `rtree.del` after `RTREE.DEL` removes at least one field.
+- `rtree.empty` when `RTREE.DEL` removes the last field and deletes the key.
+
+For example:
+
+```sh
+redis-cli CONFIG SET notify-keyspace-events Kd
+redis-cli SUBSCRIBE __keyspace@0__:users
 ```
 
 ## Development

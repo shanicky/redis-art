@@ -80,6 +80,7 @@ Registered commands:
 - `RTREE.DEL`
 - `RTREE.EXISTS`
 - `RTREE.LEN`
+- `RTREE.INFO`
 - `RTREE.GETALL`
 - `RTREE.KEYS`
 - `RTREE.VALS`

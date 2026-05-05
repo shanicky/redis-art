@@ -25,6 +25,60 @@ def redis_cli(port, *args)
   output.lines.map(&:chomp)
 end
 
+def redis_map(port, *args)
+  lines = redis_cli(port, *args)
+  raise "expected an even number of map fields: #{lines.inspect}" unless lines.length.even?
+
+  Hash[*lines]
+end
+
+def redis_version(port)
+  line = redis_cli(port, "INFO", "server").find { |item| item.start_with?("redis_version:") }
+  raise "redis_version missing" if line.nil?
+
+  line.split(":", 2).last.split(".").map(&:to_i)
+end
+
+def redis_version_at_least?(port, major, minor)
+  current_major, current_minor = redis_version(port)
+  current_major > major || (current_major == major && current_minor >= minor)
+end
+
+def read_pubsub_line(io)
+  Timeout.timeout(5) do
+    line = io.gets
+    raise "subscription closed" if line.nil?
+
+    line.chomp
+  end
+end
+
+def read_pubsub_message(io)
+  loop do
+    kind = read_pubsub_line(io)
+    next unless kind == "message"
+
+    return [read_pubsub_line(io), read_pubsub_line(io)]
+  end
+end
+
+def with_subscription(port, channel)
+  io = IO.popen(["redis-cli", "-p", port.to_s, "--raw", "SUBSCRIBE", channel], "r")
+  read_pubsub_line(io)
+  read_pubsub_line(io)
+  read_pubsub_line(io)
+  yield io
+ensure
+  if io
+    begin
+      Process.kill("TERM", io.pid)
+    rescue Errno::ESRCH
+      nil
+    end
+    io.close unless io.closed?
+  end
+end
+
 def wait_for_redis(port)
   Timeout.timeout(5) do
     loop do
@@ -86,6 +140,19 @@ begin
   raise "SET update" unless redis_cli(port, "RTREE.SET", "h", "b", "22") == ["0"]
   raise "GET" unless redis_cli(port, "RTREE.GET", "h", "b") == ["22"]
   raise "LEN" unless redis_cli(port, "RTREE.LEN", "h") == ["2"]
+  info = redis_map(port, "RTREE.INFO", "h")
+  raise "INFO type" unless info["type"] == "rtree-art"
+  raise "INFO encoding" unless info["encoding"] == "art"
+  raise "INFO length" unless info["length"] == "2"
+  raise "INFO memory_usage" unless info["memory_usage"].to_i.positive?
+  missing_info = redis_map(port, "RTREE.INFO", "missing")
+  raise "INFO missing length" unless missing_info["length"] == "0"
+  raise "INFO missing memory_usage" unless missing_info["memory_usage"] == "0"
+  raise "COMMAND DOCS" unless redis_cli(port, "COMMAND", "DOCS", "RTREE.INFO").include?("Return metadata about an rtree key.")
+  if redis_version_at_least?(port, 7, 2)
+    raise "ACL read category" unless redis_cli(port, "ACL", "CAT", "read").include?("rtree.info")
+    raise "ACL write category" unless redis_cli(port, "ACL", "CAT", "write").include?("rtree.set")
+  end
   raise "KEYS" unless redis_cli(port, "RTREE.KEYS", "h") == %w[a b]
   raise "GETALL" unless redis_cli(port, "RTREE.GETALL", "h") == %w[a 1 b 22]
 
@@ -108,6 +175,15 @@ begin
   raise "KEYS missing" unless redis_cli(port, "RTREE.KEYS", "missing") == EMPTY_ARRAY
   raise "DEL" unless redis_cli(port, "RTREE.DEL", "h", "aa", "missing") == ["1"]
   raise "EXISTS" unless redis_cli(port, "RTREE.EXISTS", "h", "aa") == ["0"]
+
+  raise "notify config" unless redis_cli(port, "CONFIG", "SET", "notify-keyspace-events", "Kd") == ["OK"]
+  with_subscription(port, "__keyspace@0__:events") do |sub|
+    raise "event SET" unless redis_cli(port, "RTREE.SET", "events", "x", "1") == ["1"]
+    raise "event set notification" unless read_pubsub_message(sub) == ["__keyspace@0__:events", "rtree.set"]
+    raise "event DEL" unless redis_cli(port, "RTREE.DEL", "events", "x") == ["1"]
+    raise "event del notification" unless read_pubsub_message(sub) == ["__keyspace@0__:events", "rtree.del"]
+    raise "event empty notification" unless read_pubsub_message(sub) == ["__keyspace@0__:events", "rtree.empty"]
+  end
 
   raise "SAVE" unless redis_cli(port, "SAVE") == ["OK"]
   stop_redis(port, pid, save: true)

@@ -18,6 +18,9 @@ extern RedisModuleType *RTreeType;
 RTree *RTreeCreate(void);
 void RTreeFree(void *value);
 size_t RTreeMemUsage(const void *value);
+size_t RTreeFreeEffort(RedisModuleString *key, const void *value);
+void RTreeUnlink(RedisModuleString *key, const void *value);
+int RTreeDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value);
 void *RTreeCopy(RedisModuleString *fromkey, RedisModuleString *tokey, const void *value);
 
 uint64_t RTreeLen(const RTree *hash);
@@ -54,6 +57,7 @@ int RTreeGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RTreeInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeGetAllCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeKeysCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RTreeValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
